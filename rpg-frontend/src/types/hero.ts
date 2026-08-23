@@ -11,6 +11,7 @@ export interface HeroStatsOut {
 
 export interface UserHeroOut {
   id: number;
+  name: string;
   level: number;
   xp: number;
   xp_to_next_level: number | null;

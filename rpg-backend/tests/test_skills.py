@@ -24,7 +24,7 @@ async def _make_hero_with_skills(db_session, telegram_id: int):
 
 async def _create_hero_via_api(client, db_session, template, telegram_id, bot_token):
     headers = telegram_headers(telegram_id, bot_token)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     return resp.json()["id"], headers
 
@@ -126,7 +126,7 @@ async def test_cannot_upgrade_a_skill_past_level_10(db_session, bot_token):
     user = User(telegram_id=590001)
     db_session.add(user)
     await db_session.flush()
-    hero = await create_hero(db_session, user.id, template.id)
+    hero = await create_hero(db_session, user.id, template.id, "Герой")
     await set_hero_level(db_session, hero.id, 100)  # budget 100, plenty for 10 upgrades
     await db_session.commit()
 

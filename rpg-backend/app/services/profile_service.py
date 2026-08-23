@@ -203,7 +203,7 @@ async def get_public_profile(db: AsyncSession, user_id: int) -> PublicProfileOut
     hero_out = None
     if hero_row is not None:
         hero_out = PublicHeroOut(
-            name=hero_row.hero_template.name,
+            name=hero_row.name or hero_row.hero_template.name,
             level=hero_row.level,
             race=hero_row.hero_template.race.name,
             character_class=hero_row.hero_template.character_class.name,

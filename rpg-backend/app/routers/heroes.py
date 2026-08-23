@@ -25,5 +25,5 @@ async def choose_hero(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    hero = await create_hero(db, user.id, payload.hero_template_id)
+    hero = await create_hero(db, user.id, payload.hero_template_id, payload.name)
     return await hero_to_out(db, hero)

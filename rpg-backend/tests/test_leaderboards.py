@@ -24,7 +24,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token, level: int = 1,
     template = await create_hero_template(db_session, name=f"LBHero{telegram_id}", race=race, char_class=char_class)
     await db_session.commit()
 
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     hero_id = resp.json()["id"]
 
@@ -175,12 +175,12 @@ async def test_arena_wins_leaderboard_counts_winner_only(client, db_session, bot
     await db_session.commit()
 
     headers_a = await _register(client, 50600, bot_token)
-    resp_a = await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": template_a.id})
+    resp_a = await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": template_a.id, "name": "Герой"})
     assert resp_a.status_code == 201
     user_a = await get_user_by_telegram_id(db_session, 50600)
 
     headers_b = await _register(client, 50601, bot_token)
-    resp_b = await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": template_b.id})
+    resp_b = await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": template_b.id, "name": "Герой"})
     assert resp_b.status_code == 201
     user_b = await get_user_by_telegram_id(db_session, 50601)
 
@@ -246,3 +246,35 @@ async def test_leaderboard_entries_do_not_leak_telegram_id(client, db_session, b
     body = resp.json()
     for entry in body["entries"]:
         assert "telegram_id" not in entry
+
+
+# --- per-instance hero names -------------------------------------------------
+
+async def test_leaderboard_shows_each_players_own_hero_name_not_the_shared_template_name(
+    client, db_session, bot_token
+):
+    """Two players who picked the same template must show up with their own
+    distinct names, not both showing the template's generic name."""
+    headers_a = await _register(client, 50900, bot_token)
+    headers_b = await _register(client, 50901, bot_token)
+    template = await create_hero_template(db_session, name="SharedTemplate")
+    await db_session.commit()
+
+    resp_a = await client.post(
+        "/api/v1/heroes", headers=headers_a, json={"hero_template_id": template.id, "name": "Громобой"}
+    )
+    assert resp_a.status_code == 201
+    resp_b = await client.post(
+        "/api/v1/heroes", headers=headers_b, json={"hero_template_id": template.id, "name": "Тенеход"}
+    )
+    assert resp_b.status_code == 201
+
+    user_a = await get_user_by_telegram_id(db_session, 50900)
+    user_b = await get_user_by_telegram_id(db_session, 50901)
+
+    resp = await client.get("/api/v1/leaderboards/level", headers=headers_a)
+    body = resp.json()
+    entry_a = next(e for e in body["entries"] if e["user_id"] == user_a.id)
+    entry_b = next(e for e in body["entries"] if e["user_id"] == user_b.id)
+    assert entry_a["hero"]["name"] == "Громобой"
+    assert entry_b["hero"]["name"] == "Тенеход"

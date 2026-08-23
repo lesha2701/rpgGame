@@ -68,7 +68,7 @@ async def give_coins(telegram_id: int, amount: int, description: str) -> Optiona
 async def get_hero_summary(user_id: int) -> Optional[asyncpg.Record]:
     pool = await get_pool()
     return await pool.fetchrow(
-        """SELECT uh.level, uh.xp, ht.name AS hero_name
+        """SELECT uh.level, uh.xp, coalesce(uh.name, ht.name) AS hero_name
            FROM user_heroes uh JOIN hero_templates ht ON ht.id = uh.hero_template_id
            WHERE uh.id = (SELECT active_hero_id FROM users WHERE id = $1)""",
         user_id,

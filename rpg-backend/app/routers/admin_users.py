@@ -48,7 +48,7 @@ def _summary_row_to_out(user: User, hero_name: str | None, hero_level: int | Non
 
 def _base_query():
     return (
-        select(User, HeroTemplate.name, UserHero.level)
+        select(User, func.coalesce(UserHero.name, HeroTemplate.name), UserHero.level)
         .outerjoin(UserHero, UserHero.id == User.active_hero_id)
         .outerjoin(HeroTemplate, HeroTemplate.id == UserHero.hero_template_id)
     )

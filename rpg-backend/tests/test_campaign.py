@@ -25,7 +25,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token, char_class=None
     await db_session.commit()
     headers = telegram_headers(telegram_id, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     hero_id = resp.json()["id"]
     if level != 1:
@@ -156,7 +156,7 @@ async def test_stunning_a_faster_hero_prevents_the_enemys_queued_heavy_strike(cl
 
     headers = telegram_headers(50001, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id, "name": "Герой"})
     hero_id = resp.json()["id"]
     resp = await client.post(f"/api/v1/heroes/me/skills/{stun_skill.id}/upgrade", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -186,7 +186,7 @@ async def test_killing_a_low_hp_enemy_before_its_action_prevents_it(client, db_s
 
     headers = telegram_headers(50002, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id, "name": "Герой"})
     assert resp.status_code == 201
 
     battle = await _start(client, headers, node.id)
@@ -209,7 +209,7 @@ async def test_defend_reduces_damage_even_against_a_faster_enemy(client, db_sess
 
     headers = telegram_headers(50003, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id, "name": "Герой"})
     assert resp.status_code == 201
 
     battle = await _start(client, headers, node.id)
@@ -242,7 +242,7 @@ async def test_interrupt_skill_cancels_boss_intent_even_though_stun_would_fail(c
 
     headers = telegram_headers(50004, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id, "name": "Герой"})
     assert resp.status_code == 201
     resp = await client.post(f"/api/v1/heroes/me/skills/{interrupt_skill.id}/upgrade", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -273,7 +273,7 @@ async def test_boss_phase_transition_is_logged_when_hp_crosses_the_threshold(cli
 
     headers = telegram_headers(50005, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id, "name": "Герой"})
     assert resp.status_code == 201
 
     battle = await _start(client, headers, node.id)
@@ -333,7 +333,7 @@ async def test_lifesteal_item_effect_heals_hero_on_hit_dealt(client, db_session,
 
     headers = telegram_headers(50006, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template.id, "name": "Герой"})
     hero_id = resp.json()["id"]
 
     user = await get_user_by_telegram_id(db_session, 50006)

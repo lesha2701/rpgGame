@@ -26,13 +26,19 @@ Status: **fully usable now.** Implemented in `services/api/auth.ts`, driven by
 
 `GET /heroes/me` → `UserHeroOut` (also embedded in `UserMeOut.active_hero`, so
 Home doesn't need a second call — it reads `active_hero` from the session).
-`POST /heroes` → creates a hero from a `hero_template_id` (only relevant for a
-brand-new player with no hero yet).
+`POST /heroes` → creates a hero from `{ hero_template_id, name }`. `name` is
+required (2-20 chars, trimmed) — this is the player's own hero identity,
+distinct from the shared `HeroTemplateOut.name`, and is what makes
+leaderboards/arena/profile show a name unique to that player rather than
+every user of the same template looking identical. `active_hero === null` is
+a brand-new player with no hero yet; `SessionGate` renders
+`CharacterCreationScreen` instead of the app shell in that case — no route is
+reachable, including this one, until creation succeeds.
 
-`UserHeroOut`: `id, level, xp, xp_to_next_level, visual_stage, hero_template
-(HeroTemplateOut), stats (HeroStatsOut)`. `HeroTemplateOut` carries
-`image_path` (nullable string, **not** a real served file — no static-asset
-serving exists on this backend) and nested `race`/`character_class`.
+`UserHeroOut`: `id, name, level, xp, xp_to_next_level, visual_stage,
+hero_template (HeroTemplateOut), stats (HeroStatsOut)`. `HeroTemplateOut`
+carries `image_path` (nullable string, **not** a real served file — no
+static-asset serving exists on this backend) and nested `race`/`character_class`.
 
 `GET /races`, `GET /classes`, `GET /hero-templates` — catalog, needed only for
 hero creation (no hero yet).

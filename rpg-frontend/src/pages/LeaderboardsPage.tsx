@@ -14,8 +14,12 @@ const TABS: { type: LeaderboardType; label: string }[] = [
   { type: "coins", label: "Монеты" },
 ];
 
+function displayName(entry: LeaderboardEntryOut): string {
+  return entry.username ?? entry.hero?.name ?? `Игрок #${entry.user_id}`;
+}
+
 function initial(entry: LeaderboardEntryOut): string {
-  return (entry.hero?.name ?? entry.username ?? "?").charAt(0).toUpperCase();
+  return displayName(entry).charAt(0).toUpperCase();
 }
 
 function PodiumSlot({ entry, place }: { entry: LeaderboardEntryOut; place: 1 | 2 | 3 }) {
@@ -28,7 +32,7 @@ function PodiumSlot({ entry, place }: { entry: LeaderboardEntryOut; place: 1 | 2
       >
         {initial(entry)}
       </div>
-      <p className="mt-1.5 truncate text-[11px] font-bold text-ink">{entry.hero?.name ?? entry.username ?? `#${entry.user_id}`}</p>
+      <p className="mt-1.5 truncate text-[11px] font-bold text-ink">{displayName(entry)}</p>
       <p className="font-mono text-[9.5px] text-ink-dim">{formatNumber(entry.value)}</p>
     </div>
   );
@@ -90,9 +94,7 @@ export function LeaderboardsPage() {
                   }`}
                 >
                   <span className="w-6 font-mono text-[11px] font-bold text-ink-dim">{entry.rank}</span>
-                  <span className="flex-1 text-[12.5px] font-semibold text-ink">
-                    {entry.hero?.name ?? entry.username ?? `#${entry.user_id}`}
-                  </span>
+                  <span className="flex-1 text-[12.5px] font-semibold text-ink">{displayName(entry)}</span>
                   <span className="font-mono text-[12px] font-bold text-ember-bright">{formatNumber(entry.value)}</span>
                 </div>
               ))}

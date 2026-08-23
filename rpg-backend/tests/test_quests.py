@@ -27,7 +27,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token, level: int = 1,
     await db_session.commit()
     headers = telegram_headers(telegram_id, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     hero_id = resp.json()["id"]
     if level != 1:
@@ -234,7 +234,7 @@ async def test_skills_upgraded_progress_is_cumulative_upgrade_actions(client, db
     await db_session.commit()
     headers = telegram_headers(11010, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    create_resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    create_resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     hero_id = create_resp.json()["id"]
     await set_hero_level(db_session, hero_id, 5)  # budget=5, enough for 3 upgrades of the same skill
     await db_session.commit()
@@ -350,13 +350,13 @@ async def test_claiming_someone_elses_quest_is_404(client, db_session, bot_token
 
     headers_a = telegram_headers(11015, bot_token)
     await client.post("/api/v1/auth/session", headers=headers_a)
-    await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": hero_template.id})
+    await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": hero_template.id, "name": "Герой"})
     listed = await client.get("/api/v1/quests", headers=headers_a)
     user_quest_id = _quest_by_code(listed.json(), "q1")["id"]
 
     headers_b = telegram_headers(11016, bot_token)
     await client.post("/api/v1/auth/session", headers=headers_b)
-    await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": hero_template.id})
+    await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": hero_template.id, "name": "Герой"})
     resp = await client.post(f"/api/v1/quests/{user_quest_id}/claim", headers=headers_b)
     assert resp.status_code == 404
 

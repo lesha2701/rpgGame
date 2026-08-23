@@ -12,7 +12,7 @@ from app.models.enums import SkillType
 async def _register_and_create_hero(client, telegram_id, bot_token, hero_template_id):
     headers = telegram_headers(telegram_id, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template_id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": hero_template_id, "name": "Герой"})
     assert resp.status_code == 201
     return resp.json()["id"], headers
 
@@ -126,7 +126,7 @@ async def test_challenging_a_user_without_a_hero_is_404(client, db_session, bot_
 
     template = await create_hero_template(db_session, name="OnlyA")
     await db_session.commit()
-    resp = await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
 
     resp = await client.post(
@@ -144,7 +144,7 @@ async def test_hero_already_in_a_match_cannot_start_another(client, db_session, 
     await client.post("/api/v1/auth/session", headers=headers_c)
     template_c = await create_hero_template(db_session, name="HeroC", race=ctx1["race"])
     await db_session.commit()
-    await client.post("/api/v1/heroes", headers=headers_c, json={"hero_template_id": template_c.id})
+    await client.post("/api/v1/heroes", headers=headers_c, json={"hero_template_id": template_c.id, "name": "Герой"})
     user_c = await get_user_by_telegram_id(db_session, 20011)
 
     resp = await client.post(
@@ -161,7 +161,7 @@ async def test_cannot_challenge_an_opponent_already_in_a_running_match(client, d
     await client.post("/api/v1/auth/session", headers=headers_c)
     template_c = await create_hero_template(db_session, name="HeroC2", race=ctx1["race"])
     await db_session.commit()
-    await client.post("/api/v1/heroes", headers=headers_c, json={"hero_template_id": template_c.id})
+    await client.post("/api/v1/heroes", headers=headers_c, json={"hero_template_id": template_c.id, "name": "Герой"})
 
     resp = await client.post(
         "/api/v1/arena/matches", headers=headers_c, json={"opponent_user_id": ctx1["user_b_id"]}
@@ -258,7 +258,7 @@ async def test_finished_match_frees_both_heroes_to_start_new_matches(client, db_
     await client.post("/api/v1/auth/session", headers=headers_c)
     template_c = await create_hero_template(db_session, name="HeroC3", race=ctx["race"])
     await db_session.commit()
-    await client.post("/api/v1/heroes", headers=headers_c, json={"hero_template_id": template_c.id})
+    await client.post("/api/v1/heroes", headers=headers_c, json={"hero_template_id": template_c.id, "name": "Герой"})
     user_c = await get_user_by_telegram_id(db_session, 20105)
 
     resp = await client.post(

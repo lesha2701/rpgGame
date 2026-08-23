@@ -43,7 +43,7 @@ async def get_active_hero(db: AsyncSession, user: User) -> UserHero | None:
     return await _fetch_hero(db, user.active_hero_id)
 
 
-async def create_hero(db: AsyncSession, user_id: int, hero_template_id: int) -> UserHero:
+async def create_hero(db: AsyncSession, user_id: int, hero_template_id: int, name: str) -> UserHero:
     """V1 allows exactly one hero per user, enforced here (not a DB
     constraint) precisely so a later stage can lift the restriction without
     a migration — see UserHero's docstring."""
@@ -55,7 +55,7 @@ async def create_hero(db: AsyncSession, user_id: int, hero_template_id: int) -> 
     if template is None or not template.is_active:
         raise NotFoundError("Hero template not found")
 
-    hero = UserHero(user_id=user_id, hero_template_id=hero_template_id, level=1, xp=0)
+    hero = UserHero(user_id=user_id, hero_template_id=hero_template_id, name=name, level=1, xp=0)
     db.add(hero)
     await db.flush()
 
@@ -129,6 +129,7 @@ async def hero_to_out(db: AsyncSession, hero: UserHero) -> UserHeroOut:
     item_stats = await _equipped_item_stats_total(db, hero.id)
     return UserHeroOut(
         id=hero.id,
+        name=hero.name or hero.hero_template.name,
         level=hero.level,
         xp=hero.xp,
         xp_to_next_level=xp_to_next_level(hero.level),

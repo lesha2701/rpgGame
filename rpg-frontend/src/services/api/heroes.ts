@@ -6,7 +6,7 @@ export async function getMyHero(): Promise<UserHeroOut> {
   return data;
 }
 
-export async function createHero(hero_template_id: number): Promise<UserHeroOut> {
-  const { data } = await api.post<UserHeroOut>("/heroes", { hero_template_id });
+export async function createHero(hero_template_id: number, name: string): Promise<UserHeroOut> {
+  const { data } = await api.post<UserHeroOut>("/heroes", { hero_template_id, name });
   return data;
 }

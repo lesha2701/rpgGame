@@ -15,7 +15,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token, level: int = 1)
     await db_session.commit()
     headers = telegram_headers(telegram_id, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     hero_id = resp.json()["id"]
     if level != 1:
@@ -287,13 +287,13 @@ async def test_claiming_someone_elses_expedition_is_404(client, db_session, bot_
 
     headers_a = telegram_headers(10018, bot_token)
     await client.post("/api/v1/auth/session", headers=headers_a)
-    await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": hero_template.id})
+    await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": hero_template.id, "name": "Герой"})
     started = await client.post(f"/api/v1/expeditions/{expedition.id}/start", headers=headers_a)
     user_expedition_id = started.json()["id"]
 
     headers_b = telegram_headers(10019, bot_token)
     await client.post("/api/v1/auth/session", headers=headers_b)
-    await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": hero_template.id})
+    await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": hero_template.id, "name": "Герой"})
     resp = await client.post(f"/api/v1/expeditions/{user_expedition_id}/claim", headers=headers_b)
     assert resp.status_code == 404
 

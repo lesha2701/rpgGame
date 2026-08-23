@@ -12,7 +12,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token, level: int = 1,
     await db_session.commit()
     headers = telegram_headers(telegram_id, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     hero_id = resp.json()["id"]
     if level != 1:
@@ -85,7 +85,7 @@ async def test_a_learned_skill_can_be_used_in_battle(client, db_session, bot_tok
     await db_session.commit()
     headers = telegram_headers(9004, bot_token)
     await client.post("/api/v1/auth/session", headers=headers)
-    create_resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    create_resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert create_resp.status_code == 201
     upgrade_resp = await client.post(f"/api/v1/heroes/me/skills/{skill.id}/upgrade", headers=headers)
     assert upgrade_resp.status_code == 200

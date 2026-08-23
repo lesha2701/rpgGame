@@ -27,7 +27,7 @@ async def _make_hero(client, db_session, headers, telegram_id) -> int:
     char_class = await create_class(db_session, code=f"class-{telegram_id}")
     template = await create_hero_template(db_session, name=f"Hero{telegram_id}", race=race, char_class=char_class)
     await db_session.commit()
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     return resp.json()["id"]
 

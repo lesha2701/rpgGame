@@ -428,7 +428,7 @@ async def _participant_out(db: AsyncSession, match: ArenaMatch, side: str) -> Ar
     return ArenaParticipantOut(
         user_id=user_id,
         hero_id=hero_id,
-        hero_name=hero.hero_template.name,
+        hero_name=hero.name or hero.hero_template.name,
         current_hp=max(0, side_state["combatant"]["current_hp"]),
         max_hp=side_state["combatant"]["stats"]["hp"],
         has_acted_this_round=side_state["pending_action"] is not None,

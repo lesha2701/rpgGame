@@ -1,5 +1,5 @@
 import { CharacterArtwork } from "@/components/artwork";
-import { EmptyState, ErrorState, LinkButton, Pill, Skeleton, StageTrack, StatChip, XpBar } from "@/components/ui";
+import { ErrorState, LinkButton, Pill, Skeleton, StageTrack, StatChip, XpBar } from "@/components/ui";
 import { useMyProfile } from "@/hooks/useProfile";
 import { useSession } from "@/hooks/useSession";
 import { formatNumber, heroTagline } from "@/utils/format";
@@ -32,17 +32,11 @@ export function HeroPage() {
 
   const hero = session.data.user.active_hero;
 
-  if (!hero) {
-    return (
-      <div className="flex h-[calc(100vh-64px)] min-h-[560px] flex-col items-center justify-center gap-4 bg-bg-surface p-6">
-        <EmptyState
-          icon="⚔"
-          title="У вас ещё нет героя"
-          description="Создание героя пока не реализовано в этом проходе."
-        />
-      </div>
-    );
-  }
+  // SessionGate renders CharacterCreationScreen instead of any route
+  // (including this one) whenever active_hero is null, so this is
+  // unreachable in practice — kept only so TypeScript's null check is
+  // satisfied without an assertion.
+  if (!hero) return null;
 
   const template = hero.hero_template;
 
@@ -64,7 +58,7 @@ export function HeroPage() {
 
       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-4">
         <div className="flex items-baseline gap-2">
-          <span className="font-display text-2xl font-semibold text-ink">{template.name}</span>
+          <span className="font-display text-2xl font-semibold text-ink">{hero.name}</span>
           <span className="font-mono text-[10.5px] uppercase tracking-wide text-ink-mute">
             {heroTagline(template.race.name, template.character_class.name)}
           </span>

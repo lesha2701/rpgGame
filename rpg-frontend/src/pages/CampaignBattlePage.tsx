@@ -280,7 +280,7 @@ export function CampaignBattlePage() {
       <div className="mt-3 flex items-center gap-3 px-4">
         <div className="flex-1">
           <div className="flex items-baseline justify-between">
-            <p className="text-[12px] font-bold text-ink">{session.data?.user.active_hero?.hero_template.name ?? "Герой"}</p>
+            <p className="text-[12px] font-bold text-ink">{session.data?.user.active_hero?.name ?? "Герой"}</p>
             <p className="font-mono text-[10.5px] text-ink-mute">
               {Math.round(b.hero.current_hp)}/{b.hero.max_hp}
             </p>

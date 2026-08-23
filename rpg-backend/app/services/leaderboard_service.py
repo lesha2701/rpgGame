@@ -37,7 +37,7 @@ def _display_columns():
     return (
         User.id.label("user_id"),
         User.username.label("username"),
-        HeroTemplate.name.label("hero_name"),
+        func.coalesce(UserHero.name, HeroTemplate.name).label("hero_name"),
         UserHero.level.label("hero_level"),
     )
 
@@ -68,7 +68,7 @@ def _pve_wins_query() -> Select:
         select(
             User.id.label("user_id"),
             User.username.label("username"),
-            HeroTemplate.name.label("hero_name"),
+            func.coalesce(UserHero.name, HeroTemplate.name).label("hero_name"),
             UserHero.level.label("hero_level"),
             wins.c.wins.label("value"),
             func.rank().over(order_by=order).label("rank"),
@@ -92,7 +92,7 @@ def _arena_wins_query() -> Select:
         select(
             User.id.label("user_id"),
             User.username.label("username"),
-            HeroTemplate.name.label("hero_name"),
+            func.coalesce(UserHero.name, HeroTemplate.name).label("hero_name"),
             UserHero.level.label("hero_level"),
             wins.c.wins.label("value"),
             func.rank().over(order_by=order).label("rank"),

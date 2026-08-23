@@ -30,7 +30,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token) -> int:
     template = await create_hero_template(db_session, name=f"Hero{telegram_id}", race=race, char_class=char_class)
     await db_session.commit()
     headers = telegram_headers(telegram_id, bot_token)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     return resp.json()["id"]
 
@@ -170,11 +170,11 @@ async def test_profile_arena_statistics(client, db_session, bot_token):
     await db_session.commit()
 
     headers_a = await _register(client, 40007, bot_token)
-    resp_a = await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": template_a.id})
+    resp_a = await client.post("/api/v1/heroes", headers=headers_a, json={"hero_template_id": template_a.id, "name": "Герой"})
     assert resp_a.status_code == 201
 
     headers_b = await _register(client, 40008, bot_token)
-    resp_b = await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": template_b.id})
+    resp_b = await client.post("/api/v1/heroes", headers=headers_b, json={"hero_template_id": template_b.id, "name": "Герой"})
     assert resp_b.status_code == 201
     user_b = await get_user_by_telegram_id(db_session, 40008)
 

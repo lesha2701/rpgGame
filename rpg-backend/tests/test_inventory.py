@@ -34,7 +34,7 @@ async def _make_hero(client, db_session, telegram_id, bot_token):
     )
     await db_session.commit()
     headers = await _register_user(client, telegram_id, bot_token)
-    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id})
+    resp = await client.post("/api/v1/heroes", headers=headers, json={"hero_template_id": template.id, "name": "Герой"})
     assert resp.status_code == 201
     return resp.json()["id"], headers
 

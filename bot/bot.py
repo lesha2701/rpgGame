@@ -1,0 +1,99 @@
+import asyncio
+import logging
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.enums import ParseMode
+
+import db
+from config import get_bot_settings
+from handlers import admin as admin_handlers
+from handlers import chat_pack as chat_pack_handlers
+from handlers import payments as payments_handlers
+from handlers import user as user_handlers
+from services.free_pack_notifier import run_free_pack_notifier
+from services.notifier import run_notification_dispatcher
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("footycards.bot")
+
+settings = get_bot_settings()
+
+
+def build_dispatcher() -> Dispatcher:
+    dp = Dispatcher()
+    dp.include_router(admin_handlers.router)
+    dp.include_router(payments_handlers.router)
+    dp.include_router(chat_pack_handlers.router)
+    dp.include_router(user_handlers.router)
+    return dp
+
+
+def _make_bot() -> Bot:
+    session = AiohttpSession(proxy=settings.telegram_proxy_url) if settings.telegram_proxy_url else None
+    return Bot(token=settings.telegram_bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+
+async def run_polling() -> None:
+    bot = _make_bot()
+    dp = build_dispatcher()
+
+    await db.get_pool()
+    background_tasks = [
+        asyncio.create_task(run_notification_dispatcher(bot)),
+        # Daily reward reminder disabled — see run_webhook() below.
+        asyncio.create_task(run_free_pack_notifier(bot)),
+    ]
+
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Starting bot in polling mode")
+        await dp.start_polling(bot)
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        await db.close_pool()
+        await bot.session.close()
+
+
+async def run_webhook() -> None:
+    from aiohttp import web
+    from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+
+    bot = _make_bot()
+    dp = build_dispatcher()
+
+    await db.get_pool()
+    asyncio.create_task(run_notification_dispatcher(bot))
+    # Daily reward reminder disabled by request.
+    asyncio.create_task(run_free_pack_notifier(bot))
+
+    await bot.set_webhook(settings.bot_webhook_url, secret_token=settings.bot_webhook_secret, drop_pending_updates=True)
+
+    app = web.Application()
+    SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=settings.bot_webhook_secret).register(app, path="/bot/webhook")
+    setup_application(app, dp, bot=bot)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", settings.bot_webhook_port)
+    logger.info("Starting bot in webhook mode on port %s", settings.bot_webhook_port)
+    await site.start()
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await db.close_pool()
+        await bot.session.close()
+
+
+def main() -> None:
+    if settings.bot_mode == "webhook":
+        asyncio.run(run_webhook())
+    else:
+        asyncio.run(run_polling())
+
+
+if __name__ == "__main__":
+    main()

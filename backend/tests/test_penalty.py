@@ -1,0 +1,358 @@
+import pytest
+
+import app.core.rate_limit as rate_limit_module
+from app.models.card import UserCard
+from app.models.enums import CardSource, Rarity
+from app.services import penalty_service
+from app.services.penalty_service import REGULATION_KICKS, player_miss_chance
+from tests.factories import create_player, get_user_by_telegram_id
+from tests.utils import telegram_headers
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    rate_limit_module._hits.clear()
+    yield
+
+
+async def _register(client, db_session, telegram_id, bot_token):
+    resp = await client.post("/api/v1/auth/session", headers=telegram_headers(telegram_id, bot_token))
+    assert resp.status_code == 200
+    return await get_user_by_telegram_id(db_session, telegram_id)
+
+
+async def _grant_card(db_session, owner_id: int, rating: int = 80) -> UserCard:
+    player = await create_player(db_session, rarity=Rarity.rare, rating=rating)
+    card = UserCard(owner_id=owner_id, player_id=player.id, source=CardSource.seed)
+    db_session.add(card)
+    await db_session.flush()
+    card.serial_number = card.id
+    db_session.add(card)
+    await db_session.commit()
+    await db_session.refresh(card)
+    return card
+
+
+def test_player_miss_chance_decreases_with_rating():
+    assert player_miss_chance(58) > player_miss_chance(99)
+    assert round(player_miss_chance(58), 2) == 0.30
+    assert round(player_miss_chance(99), 2) == 0.05
+
+
+async def test_penalty_start_rejects_card_not_owned_by_user(client, db_session, bot_token):
+    await _register(client, db_session, 830001, bot_token)
+    other_user = await _register(client, db_session, 830002, bot_token)
+    other_card = await _grant_card(db_session, other_user.id)
+
+    headers = telegram_headers(830001, bot_token)
+    resp = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": other_card.id})
+    assert resp.status_code == 403
+
+
+async def test_penalty_full_shootout_resolves_and_pays_reward(client, db_session, bot_token):
+    user = await _register(client, db_session, 830003, bot_token)
+    card = await _grant_card(db_session, user.id, rating=99)  # near-zero miss chance for a deterministic test
+    headers = telegram_headers(830003, bot_token)
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    assert start.status_code == 200
+    assert start.json()["first_kicker"] == "player"
+    session_id = start.json()["session_id"]
+
+    is_finished = False
+    result = None
+    for _ in range(30):  # regulation (10 kicks) + a safety margin for sudden death
+        resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "top_left"})
+        assert resp.status_code == 200
+        body = resp.json()
+        is_finished = body["is_finished"]
+        result = body["result"]
+        if is_finished:
+            break
+
+    assert is_finished
+    assert result in ("win", "loss")
+
+    claim = await client.post(f"/api/v1/games/penalty/{session_id}/claim", headers=headers)
+    assert claim.status_code == 200
+    assert claim.json()["result"] == result
+
+    second_claim = await client.post(f"/api/v1/games/penalty/{session_id}/claim", headers=headers)
+    assert second_claim.status_code == 409
+
+
+async def test_penalty_invalid_direction_rejected(client, db_session, bot_token):
+    user = await _register(client, db_session, 830004, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830004, bot_token)
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "up"})
+    assert resp.status_code == 409
+
+
+async def test_penalty_accepts_all_six_zones(client, db_session, bot_token):
+    user = await _register(client, db_session, 830006, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830006, bot_token)
+
+    from app.services.game_config_service import get_config
+    config = await get_config(db_session)
+    config.hourly_game_limit = 10
+    db_session.add(config)
+    await db_session.commit()
+
+    zones = ["top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"]
+    for i, zone in enumerate(zones):
+        start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+        session_id = start.json()["session_id"]
+        resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": zone})
+        assert resp.status_code == 200, f"zone {zone} rejected"
+        if i < len(zones) - 1:
+            await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "top_left"})
+
+
+async def test_penalty_rejects_stale_three_direction_values(client, db_session, bot_token):
+    user = await _register(client, db_session, 830007, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830007, bot_token)
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+    resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "left"})
+    assert resp.status_code == 409
+
+
+async def test_penalty_bot_match_win_increases_penalty_rating(client, db_session, bot_token, monkeypatch):
+    """The spec requires penalty_rating to move for bot matches too (win
+    +3, same delta Tactico uses), not just PvP — this is the only place in
+    the codebase that finishes a solo Penalty match, so the rating update
+    has to live in resolve_kick's is_finished branch. random.choice is
+    patched to a fixed zone for both the bot's dive (on offense) and its
+    own shot (on defense); submitting the opposite zone on offense always
+    beats the dive, and submitting the same zone on defense always saves
+    the bot's shot, so the shootout outcome doesn't depend on random luck."""
+    user = await _register(client, db_session, 830008, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830008, bot_token)
+    monkeypatch.setattr(penalty_service, "player_miss_chance", lambda rating: 0.0)
+    monkeypatch.setattr(penalty_service.random, "choice", lambda seq: "top_right")
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    result = None
+    for i in range(REGULATION_KICKS):
+        direction = "top_left" if i % 2 == 0 else "top_right"  # player's turn beats the dive; bot's turn gets saved
+        resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": direction})
+        body = resp.json()
+        if body["is_finished"]:
+            result = body["result"]
+            break
+
+    assert result == "win"
+    await db_session.refresh(user)
+    assert user.penalty_rating == 3
+
+
+async def test_penalty_bot_match_loss_decreases_penalty_rating_with_floor(client, db_session, bot_token, monkeypatch):
+    """Loss applies the same -1 delta, clamped at 0 like Tactico's
+    tactics_rating — forcing a deterministic loss (player always misses,
+    bot's own miss chance zeroed and its direction never matches the fixed
+    defend direction) so the outcome isn't left to chance."""
+    user = await _register(client, db_session, 830009, bot_token)
+    user.penalty_rating = 5
+    db_session.add(user)
+    await db_session.commit()
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830009, bot_token)
+
+    from app.services.game_config_service import get_config
+    config = await get_config(db_session)
+    config.penalty_bot_miss_chance = 0.0
+    db_session.add(config)
+    await db_session.commit()
+
+    monkeypatch.setattr(penalty_service, "player_miss_chance", lambda rating: 1.0)
+    monkeypatch.setattr(penalty_service.random, "choice", lambda seq: "top_right")
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    result = None
+    for _ in range(REGULATION_KICKS):
+        resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "top_left"})
+        body = resp.json()
+        if body["is_finished"]:
+            result = body["result"]
+            break
+
+    assert result == "loss"
+    await db_session.refresh(user)
+    assert user.penalty_rating == 4
+
+
+async def test_penalty_rating_never_drops_below_zero(client, db_session, bot_token, monkeypatch):
+    """A fresh user (penalty_rating starts at 0) taking a loss stays at 0
+    rather than going negative — the clamp Tactico's tactics_rating also
+    uses."""
+    user = await _register(client, db_session, 830010, bot_token)
+    assert user.penalty_rating == 0
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830010, bot_token)
+
+    from app.services.game_config_service import get_config
+    config = await get_config(db_session)
+    config.penalty_bot_miss_chance = 0.0
+    db_session.add(config)
+    await db_session.commit()
+
+    monkeypatch.setattr(penalty_service, "player_miss_chance", lambda rating: 1.0)
+    monkeypatch.setattr(penalty_service.random, "choice", lambda seq: "top_right")
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    result = None
+    for _ in range(REGULATION_KICKS):
+        resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "top_left"})
+        body = resp.json()
+        if body["is_finished"]:
+            result = body["result"]
+            break
+
+    assert result == "loss"
+    await db_session.refresh(user)
+    assert user.penalty_rating == 0
+
+
+async def test_penalty_daily_reward_cap_still_allows_play_with_zero_reward(client, db_session, bot_token):
+    """Regression: hitting the daily *reward* cap must not block starting a
+    new session — only zero out the reward at claim time (players can keep
+    playing for fun/practice once they've earned their daily coins)."""
+    from datetime import datetime, timezone
+
+    from app.services.game_config_service import get_config
+
+    user = await _register(client, db_session, 830005, bot_token)
+    card = await _grant_card(db_session, user.id, rating=99)
+    headers = telegram_headers(830005, bot_token)
+
+    config = await get_config(db_session)
+    user.penalty_rewarded_attempts_today = config.penalty_daily_limit
+    user.penalty_attempts_reset_at = datetime.now(timezone.utc)  # keep _ensure_daily_reset from wiping the cap back to 0
+    db_session.add(user)
+    await db_session.commit()
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    is_finished = False
+    for _ in range(30):
+        resp = await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "bottom_right"})
+        is_finished = resp.json()["is_finished"]
+        if is_finished:
+            break
+    assert is_finished
+
+    claim = await client.post(f"/api/v1/games/penalty/{session_id}/claim", headers=headers)
+    assert claim.status_code == 200
+    assert claim.json()["reward_coins"] == 0
+
+    await db_session.refresh(user)
+    assert user.penalty_rewarded_attempts_today == config.penalty_daily_limit  # not incremented past the cap
+
+
+async def test_penalty_hourly_limit_blocks_after_three_starts(client, db_session, bot_token):
+    from datetime import timedelta
+
+    user = await _register(client, db_session, 830005, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830005, bot_token)
+
+    for _ in range(3):
+        resp = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+        assert resp.status_code == 200
+
+    resp = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    assert resp.status_code == 409
+    details = resp.json()["error"]["details"]
+    assert details["hourly_limit"] == 3
+    assert details["retry_after_seconds"] > 0
+
+    await db_session.refresh(user)
+    user.penalty_hour_started_at = user.penalty_hour_started_at - timedelta(hours=2)
+    db_session.add(user)
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    assert resp.status_code == 200
+
+
+async def test_penalty_forfeit_counts_as_a_loss(client, db_session, bot_token):
+    """Leaving mid-match (confirmed via the frontend's leave dialog) must
+    cost the same -1 rating a real loss would — otherwise switching tabs
+    and confirming "leave" is a free way to dodge a losing match."""
+    user = await _register(client, db_session, 830011, bot_token)
+    user.penalty_rating = 5
+    db_session.add(user)
+    await db_session.commit()
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830011, bot_token)
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    # Take one kick first so the forfeit is a genuine mid-match abandonment,
+    # not just forfeiting an untouched session.
+    await client.post(f"/api/v1/games/penalty/{session_id}/kick", headers=headers, json={"direction": "top_left"})
+
+    resp = await client.post(f"/api/v1/games/penalty/{session_id}/forfeit", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["result"] == "loss"
+    assert body["rating_delta"] == -1
+
+    await db_session.refresh(user)
+    assert user.penalty_rating == 4  # 5 - 1
+
+    # The session is now claimable exactly like a natural finish, paying
+    # the loss-tier reward.
+    claim = await client.post(f"/api/v1/games/penalty/{session_id}/claim", headers=headers)
+    assert claim.status_code == 200
+    assert claim.json()["result"] == "loss"
+
+
+async def test_penalty_forfeit_rating_floors_at_zero(client, db_session, bot_token):
+    user = await _register(client, db_session, 830012, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830012, bot_token)
+    assert user.penalty_rating == 0
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    resp = await client.post(f"/api/v1/games/penalty/{session_id}/forfeit", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["rating_delta"] == -1
+
+    await db_session.refresh(user)
+    assert user.penalty_rating == 0  # clamped, not -1
+
+
+async def test_penalty_forfeit_rejects_already_finished_session(client, db_session, bot_token):
+    user = await _register(client, db_session, 830013, bot_token)
+    card = await _grant_card(db_session, user.id)
+    headers = telegram_headers(830013, bot_token)
+
+    start = await client.post("/api/v1/games/penalty/start", headers=headers, json={"user_card_id": card.id})
+    session_id = start.json()["session_id"]
+
+    first = await client.post(f"/api/v1/games/penalty/{session_id}/forfeit", headers=headers)
+    assert first.status_code == 200
+
+    second = await client.post(f"/api/v1/games/penalty/{session_id}/forfeit", headers=headers)
+    assert second.status_code == 409

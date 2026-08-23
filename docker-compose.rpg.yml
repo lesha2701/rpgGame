@@ -1,0 +1,76 @@
+name: rpg-game
+
+# Isolated PostgreSQL instance for the medieval RPG rebuild of this app.
+#
+# This is intentionally a SEPARATE compose project/file from docker-compose.yml
+# (project "football-cards"), so it never shares a network, volume, container,
+# or credential set with the existing football-card app's database. The two
+# stacks can run side by side on the same host without any risk of one
+# touching the other's data:
+#
+#   football-cards_postgres_data  (existing, untouched) <- football-cards_default network
+#   rpg_postgres_data             (this file)            <- rpg_network
+#
+# Bring up just the DB:
+#   docker compose -f docker-compose.rpg.yml --env-file .env.rpg.local up -d
+#
+# Backend/bot are NOT wired to this database yet — that starts in Stage 1
+# once actual RPG models/migrations exist. Stage 0 only proves the isolated
+# instance exists, is empty, and is reachable.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rpg-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${RPG_DB_NAME:-rpg_game}
+      POSTGRES_USER: ${RPG_DB_USER:-rpg_admin}
+      POSTGRES_PASSWORD: ${RPG_DB_PASSWORD:-rpg_dev_password_change_me}
+    ports:
+      - "${RPG_DB_EXTERNAL_PORT:-5437}:5432"
+    volumes:
+      - rpg_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RPG_DB_USER:-rpg_admin} -d ${RPG_DB_NAME:-rpg_game}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rpg_network
+
+  backend:
+    build:
+      context: ./rpg-backend
+    container_name: rpg-backend
+    restart: unless-stopped
+    environment:
+      RPG_DATABASE_URL: postgresql+asyncpg://${RPG_DB_USER:-rpg_admin}:${RPG_DB_PASSWORD:-rpg_dev_password_change_me}@postgres:5432/${RPG_DB_NAME:-rpg_game}
+      RPG_DEV_MODE: "true"
+      RPG_ENVIRONMENT: development
+      RPG_CORS_ORIGINS: http://localhost:5174,http://127.0.0.1:5174
+      RPG_ADMIN_TELEGRAM_IDS: ${RPG_ADMIN_TELEGRAM_IDS:-999000001}
+      RPG_JWT_SECRET: ${RPG_JWT_SECRET:-dev_only_secret_change_me}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./rpg-backend:/app
+    ports:
+      - "${RPG_BACKEND_PORT:-8100}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rpg_network
+
+volumes:
+  rpg_postgres_data:
+    name: rpg_postgres_data
+
+networks:
+  rpg_network:
+    name: rpg_network

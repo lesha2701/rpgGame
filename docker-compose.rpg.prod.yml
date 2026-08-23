@@ -1,0 +1,113 @@
+name: rpg-game
+
+# Production stack for Vardren (vardren.ru) — a sibling of docker-compose.rpg.yml
+# (dev), NOT a replacement for it. Same isolation guarantees as that file:
+# its own Postgres instance/volume/network, its own RPG_* env vars, never
+# sharing a container, network, or credential with any other project on the
+# host — including the football-cards stack and any other bot already
+# running there. See DEPLOYMENT_RPG.md for the full guide, including how to
+# add this alongside two already-running bots without touching them.
+#
+# Bring up:
+#   docker compose -f docker-compose.rpg.prod.yml --env-file .env.rpg.local up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rpg-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${RPG_DB_NAME:-rpg_game}
+      POSTGRES_USER: ${RPG_DB_USER:-rpg_admin}
+      POSTGRES_PASSWORD: ${RPG_DB_PASSWORD:?RPG_DB_PASSWORD must be set for production}
+    volumes:
+      - rpg_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RPG_DB_USER:-rpg_admin} -d ${RPG_DB_NAME:-rpg_game}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rpg_network
+
+  backend:
+    build:
+      context: ./rpg-backend
+    container_name: rpg-backend
+    restart: unless-stopped
+    environment:
+      RPG_DATABASE_URL: postgresql+asyncpg://${RPG_DB_USER:-rpg_admin}:${RPG_DB_PASSWORD:?RPG_DB_PASSWORD must be set for production}@postgres:5432/${RPG_DB_NAME:-rpg_game}
+      RPG_DEV_MODE: "false"
+      RPG_ENVIRONMENT: production
+      RPG_CORS_ORIGINS: https://vardren.ru
+      RPG_ADMIN_TELEGRAM_IDS: ${RPG_ADMIN_TELEGRAM_IDS:?RPG_ADMIN_TELEGRAM_IDS must be set for production}
+      RPG_JWT_SECRET: ${RPG_JWT_SECRET:?RPG_JWT_SECRET must be set for production}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "${RPG_UVICORN_WORKERS:-2}"]
+    volumes:
+      - ./rpg-backend/static:/app/static
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rpg_network
+
+  bot:
+    build:
+      context: ./rpg-bot
+    container_name: rpg-bot
+    restart: unless-stopped
+    environment:
+      RPG_DATABASE_URL: postgresql+asyncpg://${RPG_DB_USER:-rpg_admin}:${RPG_DB_PASSWORD:?RPG_DB_PASSWORD must be set for production}@postgres:5432/${RPG_DB_NAME:-rpg_game}
+      RPG_TELEGRAM_BOT_TOKEN: ${RPG_TELEGRAM_BOT_TOKEN:?RPG_TELEGRAM_BOT_TOKEN must be set for production}
+      RPG_TELEGRAM_BOT_USERNAME: ${RPG_TELEGRAM_BOT_USERNAME:-VardrenBot}
+      RPG_ADMIN_TELEGRAM_IDS: ${RPG_ADMIN_TELEGRAM_IDS:?RPG_ADMIN_TELEGRAM_IDS must be set for production}
+      RPG_MINI_APP_URL: https://vardren.ru
+      RPG_BOT_MODE: webhook
+      RPG_BOT_WEBHOOK_URL: https://vardren.ru/bot/webhook
+      RPG_BOT_WEBHOOK_SECRET: ${RPG_BOT_WEBHOOK_SECRET:?RPG_BOT_WEBHOOK_SECRET must be set for production}
+      RPG_TELEGRAM_PROXY_URL: ${RPG_TELEGRAM_PROXY_URL:-}
+    # No host port published on purpose — nginx reaches it over the internal
+    # rpg_network at http://bot:8082/bot/webhook (see rpg-nginx/nginx.conf),
+    # so Telegram's webhook traffic never needs a second host port beyond
+    # the one nginx itself publishes below.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - rpg_network
+
+  nginx:
+    build:
+      context: .
+      dockerfile: rpg-nginx/Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+    container_name: rpg-nginx
+    restart: unless-stopped
+    ports:
+      # Bound to 127.0.0.1 only — never exposed directly to the internet.
+      # Caddy (on the host, outside Docker) terminates TLS for vardren.ru
+      # and reverse-proxies here. Pick a port free on this host — see
+      # DEPLOYMENT_RPG.md for how to check what the other two bots/nginx
+      # instances already occupy before choosing.
+      - "127.0.0.1:${RPG_NGINX_PORT:-8091}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - rpg_network
+
+volumes:
+  rpg_postgres_data:
+    name: rpg_postgres_data
+
+networks:
+  rpg_network:
+    name: rpg_network

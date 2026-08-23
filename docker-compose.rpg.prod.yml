@@ -40,6 +40,12 @@ services:
       RPG_DEV_MODE: "false"
       RPG_ENVIRONMENT: production
       RPG_CORS_ORIGINS: https://vardren.ru
+      # Must be the SAME real bot token the `bot` service uses below —
+      # this is the HMAC secret core/security.py validates Telegram
+      # initData against. Missing this was a real bug: it silently fell
+      # back to config.py's "0:DEV" default, so every real Telegram
+      # request failed HMAC validation with 401 ("Сессия истекла").
+      RPG_TELEGRAM_BOT_TOKEN: ${RPG_TELEGRAM_BOT_TOKEN:?RPG_TELEGRAM_BOT_TOKEN must be set for production}
       RPG_ADMIN_TELEGRAM_IDS: ${RPG_ADMIN_TELEGRAM_IDS:?RPG_ADMIN_TELEGRAM_IDS must be set for production}
       RPG_JWT_SECRET: ${RPG_JWT_SECRET:?RPG_JWT_SECRET must be set for production}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "${RPG_UVICORN_WORKERS:-2}"]

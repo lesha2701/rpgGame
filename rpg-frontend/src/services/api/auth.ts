@@ -1,8 +1,10 @@
 import { api } from "./client";
 import type { SessionResponse, UserMeOut } from "@/types";
 
-export async function startSession(): Promise<SessionResponse> {
-  const { data } = await api.post<SessionResponse>("/auth/session");
+export async function startSession(referralCode?: string): Promise<SessionResponse> {
+  const { data } = await api.post<SessionResponse>("/auth/session", null, {
+    headers: referralCode ? { "X-Referral-Code": referralCode } : undefined,
+  });
   return data;
 }
 

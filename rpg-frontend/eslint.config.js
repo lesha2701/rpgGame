@@ -23,6 +23,7 @@ export default [
         HTMLInputElement: "readonly",
         HTMLDivElement: "readonly",
         URL: "readonly",
+        URLSearchParams: "readonly",
         File: "readonly",
         FormData: "readonly",
         console: "readonly",

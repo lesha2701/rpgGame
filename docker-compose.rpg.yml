@@ -11,12 +11,15 @@ name: rpg-game
 #   football-cards_postgres_data  (existing, untouched) <- football-cards_default network
 #   rpg_postgres_data             (this file)            <- rpg_network
 #
-# Bring up just the DB:
-#   docker compose -f docker-compose.rpg.yml --env-file .env.rpg.local up -d
+# Bring up the whole stack:
+#   docker compose -f docker-compose.rpg.yml --env-file .env.rpg.local up -d --build
 #
-# Backend/bot are NOT wired to this database yet — that starts in Stage 1
-# once actual RPG models/migrations exist. Stage 0 only proves the isolated
-# instance exists, is empty, and is reachable.
+# postgres/backend/bot are all wired together now. `bot` is what actually
+# launches the Mini App in Telegram (a web_app inline button on /start) and
+# is what rpg-backend's initData HMAC validation authenticates against —
+# RPG_TELEGRAM_BOT_TOKEN must be the same bot (via @BotFather) on both
+# sides. Runs in polling mode by default (no public HTTPS URL needed for
+# local dev); set RPG_BOT_MODE=webhook + RPG_BOT_WEBHOOK_URL for production.
 
 services:
   postgres:
@@ -64,6 +67,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - rpg_network
+
+  bot:
+    build:
+      context: ./rpg-bot
+    container_name: rpg-bot
+    restart: unless-stopped
+    environment:
+      RPG_DATABASE_URL: postgresql+asyncpg://${RPG_DB_USER:-rpg_admin}:${RPG_DB_PASSWORD:-rpg_dev_password_change_me}@postgres:5432/${RPG_DB_NAME:-rpg_game}
+      RPG_TELEGRAM_BOT_TOKEN: ${RPG_TELEGRAM_BOT_TOKEN:-0:DEV}
+      RPG_TELEGRAM_BOT_USERNAME: ${RPG_TELEGRAM_BOT_USERNAME:-vardren_bot}
+      RPG_ADMIN_TELEGRAM_IDS: ${RPG_ADMIN_TELEGRAM_IDS:-999000001}
+      RPG_MINI_APP_URL: ${RPG_MINI_APP_URL:-http://localhost:5174}
+      RPG_BOT_MODE: ${RPG_BOT_MODE:-polling}
+      RPG_BOT_WEBHOOK_URL: ${RPG_BOT_WEBHOOK_URL:-}
+      RPG_BOT_WEBHOOK_SECRET: ${RPG_BOT_WEBHOOK_SECRET:-dev_webhook_secret}
+      RPG_TELEGRAM_PROXY_URL: ${RPG_TELEGRAM_PROXY_URL:-}
+    volumes:
+      - ./rpg-bot:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - rpg_network
 

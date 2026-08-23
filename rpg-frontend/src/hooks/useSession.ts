@@ -15,7 +15,11 @@ export function useSession() {
 
   const query = useQuery({
     queryKey: ["session"],
-    queryFn: authApi.startSession,
+    // The bot's /invite deep link opens the Mini App at .../?ref=<telegram_id>
+    // (see rpg-bot/keyboards.py) — Telegram's WebView loads that URL as-is,
+    // so window.location.search already has it by the time this runs, same
+    // mechanism the football frontend uses (App.tsx's own createSession call).
+    queryFn: () => authApi.startSession(new URLSearchParams(window.location.search).get("ref") ?? undefined),
     staleTime: Infinity,
     retry: 1,
   });
